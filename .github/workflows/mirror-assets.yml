@@ -1,0 +1,55 @@
+name: Mirror portfolio assets
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Mirror external images into repository
+        shell: bash
+        run: |
+          set -u
+          mkdir -p assets
+          PREFIX='https://wang-xiaozhen-visual-portfolio.xiaozhenw21.chatgpt.site/assets/'
+          PLACEHOLDER='/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAAgACADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD0WiiioKCiiigAooooAKKKKAP/2Q=='
+          mapfile -t URLS < <(grep -oE 'https://wang-xiaozhen-visual-portfolio\.xiaozhenw21\.chatgpt\.site/assets/[^" <)]+' index.html | sort -u)
+          echo "Found ${#URLS[@]} external images"
+          for url in "${URLS[@]}"; do
+            name="${url##*/}"
+            echo "Fetching $name"
+            if ! curl -L --fail --silent --show-error --retry 2 --connect-timeout 15 --max-time 90 "$url" -o "assets/$name"; then
+              echo "Using placeholder for $name"
+              printf '%s' "$PLACEHOLDER" | base64 -d > "assets/$name"
+            fi
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          s=s.replace('https://wang-xiaozhen-visual-portfolio.xiaozhenw21.chatgpt.site/assets/','assets/')
+          # If any future image still fails, remove the broken-image icon and use a neutral background.
+          fallback = """<script>document.addEventListener('DOMContentLoaded',()=>{document.querySelectorAll('img').forEach(i=>{i.addEventListener('error',()=>{i.removeAttribute('src');i.style.background='linear-gradient(135deg,#e8dfd2,#f7f2e9)';i.style.minHeight=i.style.minHeight||'120px';},{once:true})})});</script>"""
+          if fallback not in s:
+              s=s.replace('</body>', fallback+'</body>')
+          p.write_text(s,encoding='utf-8')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html assets
+          if git diff --cached --quiet; then
+            echo 'No changes to commit.'
+            exit 0
+          fi
+          git commit -m 'Mirror portfolio images for GitHub Pages'
+          git push
