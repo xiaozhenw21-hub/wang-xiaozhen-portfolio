@@ -1,0 +1,23 @@
+name: Probe HLS access
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/probe-hls.yml'
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe manifest
+        shell: bash
+        run: |
+          set +e
+          U='https://wang-xiaozhen-visual-portfolio.xiaozhenw21.chatgpt.site/assets/heritage/index.m3u8'
+          R='https://wang-xiaozhen-visual-portfolio.xiaozhenw21.chatgpt.site/'
+          UA='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1'
+          echo '--- plain ---'
+          curl -L -i --max-time 20 "$U" | head -40
+          echo '--- with UA + referer ---'
+          curl -L -i -A "$UA" -e "$R" -H 'Accept: application/vnd.apple.mpegurl,application/x-mpegURL,*/*' --max-time 20 "$U" | head -60
