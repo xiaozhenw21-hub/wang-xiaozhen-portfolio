@@ -1,0 +1,23 @@
+name: Inspect old portfolio app.js
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/inspect-old-app-js.yml'
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect app.js media map
+        shell: bash
+        run: |
+          set -e
+          BASE='https://wang-xiaozhen-visual-portfolio.xiaozhenw21.chatgpt.site/'
+          curl -L --fail --silent --show-error "${BASE}app.js" -o app.js
+          echo "JS bytes: $(wc -c < app.js)"
+          echo '--- media-like references ---'
+          grep -Eo '[A-Za-z0-9_./-]+\.(m3u8|mp4|webm|mov)(\?[^"'"'"' <>)]*)?' app.js | sort -u || true
+          echo '--- lines around video identifiers / HLS / sources ---'
+          grep -Ein 'heritage|erlitou|nice|qiaoqiao|majiang|six-hours|t-manual|mi-blender|shoes|blender|m3u8|mp4|videoMap|videoSources|Hls' app.js | head -220 || true
