@@ -1,0 +1,102 @@
+name: Mirror portfolio videos
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/mirror-videos.yml'
+permissions:
+  contents: write
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Mirror HLS videos and add player
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://wang-xiaozhen-visual-portfolio.xiaozhenw21.chatgpt.site/assets'
+          SLUGS='heritage majiang erlitou qiaoqiao nice fan six-hours'
+          mkdir -p videos assets
+          curl -L --fail --silent --show-error --retry 3 "$BASE/hls.min.js" -o assets/hls.min.js
+          for slug in $SLUGS; do
+            echo "== Mirroring $slug =="
+            mkdir -p "videos/$slug"
+            curl -L --fail --silent --show-error --retry 3 "$BASE/$slug/index.m3u8" -o "videos/$slug/index.m3u8"
+            grep -v '^#' "videos/$slug/index.m3u8" | sed '/^[[:space:]]*$/d' > "/tmp/${slug}-segments.txt"
+            while IFS= read -r seg; do
+              curl -L --fail --silent --show-error --retry 3 "$BASE/$slug/$seg" -o "videos/$slug/$seg"
+            done < "/tmp/${slug}-segments.txt"
+          done
+          du -sh videos
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+
+          # Attach playable HLS videos to the seven film cards.
+          mapping={
+            'heritage.jpg':('heritage','读懂中国'),
+            'majiang.jpg':('majiang','马街书会'),
+            'erlitou.jpg':('erlitou','遥望二里头'),
+          }
+          for img,(slug,title) in mapping.items():
+            # main/side cards already have an onclick text-detail action
+            pat=r'(<div class="card(?: main| side)?)(?: video-card)?" onclick="[^"]*">(?=<img src="assets/'+re.escape(img)+r'")'
+            repl=r'\1 video-card" onclick="playVideo(\''+slug+r'\',\''+title+r'\')">'
+            s,n=re.subn(pat,repl,s,count=1)
+            print('patched card',slug,n)
+
+          mini={
+            'qiaoqiao.jpg':('qiaoqiao','《悄悄》'),
+            'nice.jpg':('nice','纳爱斯'),
+            'fan.jpg':('fan','传统 · 漆扇'),
+            'six-hours.jpg':('six-hours','《六小时后你将死去》'),
+          }
+          for img,(slug,title) in mini.items():
+            pat=r'<div class="mini">(?=<img src="assets/'+re.escape(img)+r'")'
+            repl='<div class="mini video-card-mini" onclick="playVideo(\''+slug+'\',\''+title+'\')">'
+            s,n=re.subn(pat,repl,s,count=1)
+            print('patched mini',slug,n)
+
+          css='''
+          .video-card,.video-card-mini{cursor:pointer;position:relative}.video-card:before,.video-card-mini:before{content:'▶ 播放';position:absolute;z-index:6;right:12px;top:12px;padding:7px 10px;border-radius:999px;background:rgba(20,18,16,.82);color:#fff;font-size:10px;letter-spacing:.3px;backdrop-filter:blur(8px);box-shadow:0 6px 22px #0003}.video-card-mini:before{font-size:9px;padding:6px 8px}.video-box{width:min(920px,96vw);background:#111;border-radius:20px;padding:16px;box-shadow:0 24px 90px #0008}.video-head{display:flex;align-items:center;justify-content:space-between;color:#fff;padding:2px 4px 12px}.video-head b{font-size:16px}.video-close{border:0;background:#ffffff18;color:#fff;width:36px;height:36px;border-radius:50%;font-size:22px;cursor:pointer}.video-box video{display:block;width:100%;max-height:72vh;background:#000;border-radius:14px;object-fit:contain}.video-status{color:#bbb;font-size:11px;padding:10px 4px 2px}.video-modal{background:rgba(0,0,0,.82);backdrop-filter:blur(10px)}
+          '''
+          if '.video-card-mini{' not in s:
+            s=s.replace('</style>',css+'</style>',1)
+
+          modal='''<div class="modal video-modal" id="videoModal" onclick="if(event.target===this)closeVideo()"><div class="video-box"><div class="video-head"><b id="videoTitle">作品播放</b><button class="video-close" onclick="closeVideo()">×</button></div><video id="videoPlayer" controls playsinline webkit-playsinline preload="metadata"></video><div class="video-status" id="videoStatus">点击播放键观看</div></div></div>'''
+          if 'id="videoModal"' not in s:
+            s=s.replace('<div class="modal" id="modal"',modal+'<div class="modal" id="modal"',1)
+
+          player='''<script src="assets/hls.min.js"></script><script>
+          let portfolioHls=null;
+          const videoSources={heritage:'videos/heritage/index.m3u8',majiang:'videos/majiang/index.m3u8',erlitou:'videos/erlitou/index.m3u8',qiaoqiao:'videos/qiaoqiao/index.m3u8',nice:'videos/nice/index.m3u8',fan:'videos/fan/index.m3u8','six-hours':'videos/six-hours/index.m3u8'};
+          function playVideo(slug,title){
+            const m=document.getElementById('videoModal'),v=document.getElementById('videoPlayer'),st=document.getElementById('videoStatus');
+            document.getElementById('videoTitle').textContent=title||'作品播放';
+            m.classList.add('open'); document.body.style.overflow='hidden';
+            if(portfolioHls){portfolioHls.destroy();portfolioHls=null;} v.pause(); v.removeAttribute('src'); v.load();
+            const src=videoSources[slug]; v.poster='assets/'+slug+'.jpg'; st.textContent='视频已就绪，点击播放键观看';
+            if(v.canPlayType('application/vnd.apple.mpegurl')){v.src=src;v.load();}
+            else if(window.Hls&&Hls.isSupported()){
+              portfolioHls=new Hls({enableWorker:true,lowLatencyMode:false}); portfolioHls.loadSource(src); portfolioHls.attachMedia(v);
+              portfolioHls.on(Hls.Events.MANIFEST_PARSED,()=>{st.textContent='视频已就绪，点击播放键观看';});
+              portfolioHls.on(Hls.Events.ERROR,(e,d)=>{if(d&&d.fatal)st.textContent='视频加载遇到问题，请关闭后重试';});
+            } else {st.textContent='当前浏览器不支持此视频格式，请使用系统浏览器打开';}
+          }
+          function closeVideo(){const m=document.getElementById('videoModal'),v=document.getElementById('videoPlayer');m.classList.remove('open');document.body.style.overflow='';v.pause();if(portfolioHls){portfolioHls.destroy();portfolioHls=null;}v.removeAttribute('src');v.load();}
+          </script>'''
+          if 'const videoSources=' not in s:
+            s=s.replace('</body>',player+'</body>',1)
+          p.write_text(s,encoding='utf-8')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html assets/hls.min.js videos
+          git commit -m 'Add playable portfolio videos'
+          git push
