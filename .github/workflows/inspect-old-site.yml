@@ -1,0 +1,25 @@
+name: Inspect old portfolio media
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/inspect-old-site.yml'
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect HTML for video media
+        shell: bash
+        run: |
+          set -e
+          URL='https://wang-xiaozhen-visual-portfolio.xiaozhenw21.chatgpt.site/'
+          curl -L --fail --silent --show-error "$URL" -o page.html
+          echo "HTML bytes: $(wc -c < page.html)"
+          echo '--- MP4/WEBM/MOV references ---'
+          grep -Eo 'https?://[^"'"'"' <>]+\.(mp4|webm|mov)(\?[^"'"'"' <>]*)?|[A-Za-z0-9_./-]+\.(mp4|webm|mov)(\?[^"'"'"' <>]*)?' page.html | sort -u || true
+          echo '--- Lines mentioning video/source/data-video ---'
+          grep -Ein 'video|source|data-[a-z-]*video|mp4|webm|mov' page.html | head -120 || true
+          echo '--- JS/CSS asset refs ---'
+          grep -Eo '(src|href)="[^"]+\.(js|css)(\?[^"]*)?"' page.html | head -80 || true
